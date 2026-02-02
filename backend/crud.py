@@ -40,3 +40,20 @@ def add_study_session(user_id: int, subject_id: int, duration: int, notes: str =
         return None
     finally:
         db.close()
+
+def get_user_by_username(username: str) -> dict | None:
+    db = get_db()
+    cursor = db.cursor()
+    cursor.execute(
+        "SELECT id, username, password FROM users WHERE username = ?",
+        (username,)
+    )
+    row = cursor.fetchone()
+    db.close()
+    if row:
+        return {
+            "id": row[0],
+            "username": row[1],
+            "password": row[2]
+        }
+    return None

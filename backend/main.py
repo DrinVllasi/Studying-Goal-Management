@@ -2,12 +2,13 @@ from fastapi import FastAPI
 from fastapi import HTTPException
 from database import init_db
 from schemas import UserCreate
-from schemas import StudySessionCreate
-from crud import create_user
+from schemas import StudySessionCreate, Login
+from crud import create_user, get_user_by_username
 from crud import add_study_session
 
 
 app = FastAPI()
+
 
 @app.on_event("startup")
 def startup():
@@ -24,6 +25,17 @@ def register(user: UserCreate):
         raise HTTPException(status_code=400, detail="Username or email already taken")
     return {"message": "User registered", "user_id": user_id}
 
+@app.post("/login")
+def login(credentials: Login):
+    user = get_user_by_username(credentials.username)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid username or password")
+    
+    if user["password"] != credentials.password:
+        raise HTTPException(status_code=401, detail="Invalid username or password")
+    
+    return {"message": "Login successful", "user_id": user["id"]}
+
 @app.post("/study")
 def create_study(session: StudySessionCreate):
     add_study_session(
@@ -33,3 +45,4 @@ def create_study(session: StudySessionCreate):
         session.notes
     )
     return {"message": "Study session added"}
+

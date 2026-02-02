@@ -11,3 +11,7 @@ class StudySessionCreate(BaseModel):
     subject: int
     duration: int
     notes: Optional[str] = None
+
+class Login(BaseModel):
+    username: str
+    password: str
