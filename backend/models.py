@@ -1,8 +1,11 @@
-class StudySession:
-    def __init__(self, subject_id, duration, notes):
-        self.subject_id = subject_id
-        self.duration = duration
-        self.notes = notes
+from pydantic import BaseModel
+from typing import Optional
 
-    def is_long_session(self):
+
+class StudySession(BaseModel):
+    subject_id: int
+    duration: int
+    notes: Optional[str] = None
+
+    def is_long_session(self) -> bool:
         return self.duration >= 60

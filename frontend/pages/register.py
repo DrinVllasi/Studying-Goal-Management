@@ -1,6 +1,7 @@
 import streamlit as st
 import requests
 
+
 API_BASE = "http://127.0.0.1:8000"
 
 st.title("Create Account")
@@ -17,15 +18,27 @@ if submit:
     else:
         try:
             r = requests.post(
-                f"{API_BASE}/register",
-                json={"username": username, "email": email, "password": password}
+                f"{API_BASE}/users/",
+                json={
+                    "username": username,
+                    "email": email,
+                    "password": password
+                }
             )
-            if r.status_code == 200:
+
+            if r.status_code == 201:  # 201 Created
                 data = r.json()
-                st.success(f"Account created! Your ID: {data['user_id']}")
-                st.info("You can now go back and log in.")
-                st.markdown("[Go to login →](pages/login.py)")
+                st.success(f"Account created! Your ID: {data['id']}")
+                st.info("You can now log in.")
+                st.markdown("[Go back to login →](app.py)")  # or use st.switch_page
             else:
-                st.error(r.json().get("detail", "Registration failed"))
+                try:
+                    detail = r.json().get("detail", "Registration failed")
+                    st.error(detail)
+                except:
+                    st.error(f"Server error ({r.status_code})")
+
+        except requests.exceptions.ConnectionError:
+            st.error("Cannot connect to the API. Is the backend running?")
         except Exception as e:
-            st.error(f"Could not connect to server: {e}")
+            st.error(f"An error occurred: {e}")
