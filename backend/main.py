@@ -1,8 +1,15 @@
 # main.py
-from fastapi import FastAPI, HTTPException, Header
+from fastapi import FastAPI, HTTPException, Header, Response
 from database import get_db, init_db
-from schemas import UserCreate, UserOut, StudySessionCreate, StudySessionOut, Login
+from schemas import (
+    UserCreate,
+    UserOut,
+    StudySessionCreate,
+    StudySessionOut,
+    Login
+)
 from typing import List
+import sqlite3
 
 app = FastAPI(title="Study Goal API")
 
@@ -29,9 +36,12 @@ def create_user(user: UserCreate):
         db.commit()
         user_id = cursor.lastrowid
 
-        # Return the created user
-        cursor.execute("SELECT id, username, email FROM users WHERE id = ?", (user_id,))
+        cursor.execute(
+            "SELECT id, username, email FROM users WHERE id = ?",
+            (user_id,)
+        )
         row = cursor.fetchone()
+
         return {"id": row[0], "username": row[1], "email": row[2]}
 
     except sqlite3.IntegrityError:
@@ -46,22 +56,25 @@ def create_user(user: UserCreate):
 def get_current_user(x_user_id: int = Header(..., alias="X-User-Id")):
     db = get_db()
     cursor = db.cursor()
-    cursor.execute("SELECT id, username, email FROM users WHERE id = ?", (x_user_id,))
+    cursor.execute(
+        "SELECT id, username, email FROM users WHERE id = ?",
+        (x_user_id,)
+    )
     row = cursor.fetchone()
     db.close()
 
     if not row:
         raise HTTPException(status_code=404, detail="User not found")
 
-    return UserOut(id=row[0], username=row[1], email=row[2])
+    return {"id": row[0], "username": row[1], "email": row[2]}
 
 
 # ──────────────── Study Sessions ────────────────
 
-@app.post("/study/", response_model=StudySessionOut, status_code=201)
+@app.post("/study/", status_code=201)
 def create_study_session(
-        session: StudySessionCreate,
-        x_user_id: int = Header(..., alias="X-User-Id")
+    session: StudySessionCreate,
+    x_user_id: int = Header(..., alias="X-User-Id")
 ):
     if session.user_id != x_user_id:
         raise HTTPException(status_code=403, detail="You can only create sessions for yourself")
@@ -71,24 +84,16 @@ def create_study_session(
     try:
         cursor.execute(
             """
-            INSERT INTO study_sessions (user_id, subject_id, duration, notes, session_date)
+            INSERT INTO study_sessions
+            (user_id, subject_id, duration, notes, session_date)
             VALUES (?, ?, ?, ?, datetime('now'))
             """,
             (session.user_id, session.subject_id, session.duration, session.notes)
         )
         db.commit()
-        session_id = cursor.lastrowid
 
-        # Return the created session
-        cursor.execute(
-            "SELECT id, user_id, subject_id, duration, notes, session_date FROM study_sessions WHERE id = ?",
-            (session_id,)
-        )
-        row = cursor.fetchone()
-        return StudySessionOut(
-            id=row[0], user_id=row[1], subject_id=row[2],
-            duration=row[3], notes=row[4], session_date=row[5]
-        )
+        # ✅ NO BODY → Streamlit has nothing to show
+        return Response(status_code=201)
 
     except sqlite3.Error as e:
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
@@ -112,15 +117,24 @@ def get_my_study_sessions(x_user_id: int = Header(..., alias="X-User-Id")):
     rows = cursor.fetchall()
     db.close()
 
-    sessions = []
+    sessions: List[StudySessionOut] = []
+
     for row in rows:
-        sessions.append(StudySessionOut(
-            id=row[0], user_id=row[1], subject_id=row[2],
-            duration=row[3], notes=row[4], session_date=row[5]
-        ))
+        sessions.append(
+            StudySessionOut(
+                id=row[0],
+                user_id=row[1],
+                subject_id=row[2],
+                duration=row[3],
+                notes=row[4],
+                session_date=row[5]
+            )
+        )
 
     return sessions
 
+
+# ──────────────── Auth ────────────────
 
 @app.post("/login")
 def login(credentials: Login):
@@ -133,6 +147,7 @@ def login(credentials: Login):
 
     return {"message": "Login successful", "user_id": user["id"]}
 
+
 def get_user_by_username(username: str):
     db = get_db()
     cursor = db.cursor()
@@ -142,6 +157,7 @@ def get_user_by_username(username: str):
     )
     row = cursor.fetchone()
     db.close()
+
     if row:
         return {"id": row[0], "username": row[1], "password": row[2]}
     return None
