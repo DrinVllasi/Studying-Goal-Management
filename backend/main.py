@@ -6,7 +6,8 @@ from schemas import (
     UserOut,
     StudySessionCreate,
     StudySessionOut,
-    Login
+    Login,
+    Subject
 )
 from typing import List
 import sqlite3
@@ -15,9 +16,17 @@ app = FastAPI(title="Study Goal API")
 
 
 @app.on_event("startup")
-def startup_event():
+async def startup_event():
     init_db()
 
+@app.get("/subjects/", response_model=List[Subject])
+def get_subjects():
+    db = get_db()
+    cursor = db.cursor()
+    cursor.execute("SELECT id, name FROM subjects ORDER BY name")
+    rows = cursor.fetchall()
+    db.close()
+    return [{"id": row["id"], "name": row["name"]} for row in rows]
 
 # ──────────────── Users ────────────────
 

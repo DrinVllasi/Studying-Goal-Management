@@ -28,3 +28,7 @@ class StudySessionOut(BaseModel):
 class Login(BaseModel):
     username: str
     password: str
+
+class Subject(BaseModel):
+    id: int
+    name: str
