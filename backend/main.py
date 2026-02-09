@@ -1,5 +1,5 @@
 # main.py
-from fastapi import FastAPI, HTTPException, Header, Response
+from fastapi import FastAPI, HTTPException, Header, Response, status
 from database import get_db, init_db
 from schemas import (
     UserCreate,
@@ -7,17 +7,23 @@ from schemas import (
     StudySessionCreate,
     StudySessionOut,
     Login,
-    Subject
+    Subject,
+    SubjectCreate,      
+    HabitCreate, HabitOut,  
+    GoalCreate, GoalOut     
 )
 from typing import List
 import sqlite3
 
 app = FastAPI(title="Study Goal API")
 
-
 @app.on_event("startup")
 async def startup_event():
     init_db()
+
+# ────────────────────────────────────────────────
+# Subjects CRUD
+# ────────────────────────────────────────────────
 
 @app.get("/subjects/", response_model=List[Subject])
 def get_subjects():
@@ -28,7 +34,64 @@ def get_subjects():
     db.close()
     return [{"id": row["id"], "name": row["name"]} for row in rows]
 
-# ──────────────── Users ────────────────
+
+@app.post("/subjects/", response_model=Subject, status_code=201)
+def create_subject(subject: SubjectCreate):
+    db = get_db()
+    cursor = db.cursor()
+    try:
+        cursor.execute("INSERT INTO subjects (name) VALUES (?)", (subject.name,))
+        db.commit()
+        subject_id = cursor.lastrowid
+        cursor.execute("SELECT id, name FROM subjects WHERE id = ?", (subject_id,))
+        row = cursor.fetchone()
+        return {"id": row["id"], "name": row["name"]}
+    except sqlite3.IntegrityError:
+        raise HTTPException(status_code=400, detail="Subject name already exists")
+    except sqlite3.Error as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+    finally:
+        db.close()
+
+
+@app.put("/subjects/{subject_id}", response_model=Subject)
+def update_subject(subject_id: int, subject: SubjectCreate):
+    db = get_db()
+    cursor = db.cursor()
+    try:
+        cursor.execute("UPDATE subjects SET name = ? WHERE id = ?", (subject.name, subject_id))
+        db.commit()
+        if cursor.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Subject not found")
+        cursor.execute("SELECT id, name FROM subjects WHERE id = ?", (subject_id,))
+        row = cursor.fetchone()
+        return {"id": row["id"], "name": row["name"]}
+    except sqlite3.IntegrityError:
+        raise HTTPException(status_code=400, detail="Subject name already exists")
+    except sqlite3.Error as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+    finally:
+        db.close()
+
+
+@app.delete("/subjects/{subject_id}", status_code=204)
+def delete_subject(subject_id: int):
+    db = get_db()
+    cursor = db.cursor()
+    try:
+        cursor.execute("DELETE FROM subjects WHERE id = ?", (subject_id,))
+        db.commit()
+        if cursor.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Subject not found")
+        return Response(status_code=204)
+    except sqlite3.Error as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+    finally:
+        db.close()
+
+# ────────────────────────────────────────────────
+# Your existing endpoints (kept unchanged)
+# ────────────────────────────────────────────────
 
 @app.post("/users/", response_model=UserOut, status_code=201)
 def create_user(user: UserCreate):
@@ -78,8 +141,6 @@ def get_current_user(x_user_id: int = Header(..., alias="X-User-Id")):
     return {"id": row[0], "username": row[1], "email": row[2]}
 
 
-# ──────────────── Study Sessions ────────────────
-
 @app.post("/study/", status_code=201)
 def create_study_session(
     session: StudySessionCreate,
@@ -100,10 +161,7 @@ def create_study_session(
             (session.user_id, session.subject_id, session.duration, session.notes)
         )
         db.commit()
-
-        # ✅ NO BODY → Streamlit has nothing to show
         return Response(status_code=201)
-
     except sqlite3.Error as e:
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
     finally:
@@ -141,9 +199,91 @@ def get_my_study_sessions(x_user_id: int = Header(..., alias="X-User-Id")):
         )
 
     return sessions
+# Update a session (PUT /study/{session_id})
+@app.put("/study/{session_id}", status_code=200)
+def update_study_session(
+    session_id: int,
+    updates: StudySessionCreate,
+    x_user_id: int = Header(..., alias="X-User-Id")
+):
+    db = get_db()
+    cursor = db.cursor()
+
+    # Check if the session exists and belongs to the user
+    cursor.execute(
+        "SELECT user_id FROM study_sessions WHERE id = ?",
+        (session_id,)
+    )
+    row = cursor.fetchone()
+    if not row:
+        db.close()
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    if row["user_id"] != x_user_id:
+        db.close()
+        raise HTTPException(status_code=403, detail="You can only edit your own sessions")
+
+    # Build the update query dynamically (only update fields that are provided)
+    fields = []
+    values = []
+    if updates.subject_id is not None:
+        fields.append("subject_id = ?")
+        values.append(updates.subject_id)
+    if updates.duration is not None:
+        fields.append("duration = ?")
+        values.append(updates.duration)
+    if updates.notes is not None:
+        fields.append("notes = ?")
+        values.append(updates.notes)
+
+    if not fields:
+        db.close()
+        raise HTTPException(status_code=400, detail="No fields to update")
+
+    values.append(session_id)
+    query = f"UPDATE study_sessions SET {', '.join(fields)} WHERE id = ?"
+
+    try:
+        cursor.execute(query, values)
+        db.commit()
+        return {"message": "Session updated successfully"}
+    except sqlite3.Error as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+    finally:
+        db.close()
 
 
-# ──────────────── Auth ────────────────
+# Delete a session (DELETE /study/{session_id})
+@app.delete("/study/{session_id}", status_code=204)
+def delete_study_session(
+    session_id: int,
+    x_user_id: int = Header(..., alias="X-User-Id")
+):
+    db = get_db()
+    cursor = db.cursor()
+
+    # Check ownership
+    cursor.execute(
+        "SELECT user_id FROM study_sessions WHERE id = ?",
+        (session_id,)
+    )
+    row = cursor.fetchone()
+    if not row:
+        db.close()
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    if row["user_id"] != x_user_id:
+        db.close()
+        raise HTTPException(status_code=403, detail="You can only delete your own sessions")
+
+    try:
+        cursor.execute("DELETE FROM study_sessions WHERE id = ?", (session_id,))
+        db.commit()
+        return Response(status_code=204)
+    except sqlite3.Error as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+    finally:
+        db.close()
 
 @app.post("/login")
 def login(credentials: Login):

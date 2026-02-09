@@ -19,20 +19,18 @@ if "user_id" not in st.session_state:
 user_id = st.session_state["user_id"]
 
 # ────────────────────────────────────────────────
-# Fetch subjects for dropdown and name mapping
+# Fetch subjects for name mapping
 # ────────────────────────────────────────────────
-subjects = []
+subject_map = {}
 try:
     r = requests.get(f"{API_BASE}/subjects/")
     if r.status_code == 200:
         subjects = r.json()
+        subject_map = {s["id"]: s["name"] for s in subjects}
     else:
-        st.warning("Could not load subjects")
+        st.warning("Could not load subject names")
 except Exception as e:
     st.warning(f"Error loading subjects: {e}")
-
-# Subject name mapping (id → name)
-subject_map = {s["id"]: s["name"] for s in subjects} if subjects else {}
 
 # ────────────────────────────────────────────────
 # Sidebar with logout
@@ -51,42 +49,25 @@ st.caption(f"User ID: {user_id}")
 # ────────────────────────────────────────────────
 # Add new study session form
 # ────────────────────────────────────────────────
-st.subheader("Log new study session")
+st.subheader("Add New Session")
 
 with st.form("new_session_form", clear_on_submit=True):
     col1, col2 = st.columns(2)
 
     with col1:
-        if subjects:
-            subject_names = [s["name"] for s in subjects]
-            selected_name = st.selectbox(
-                "Subject",
-                options=subject_names,
-                index=0,
-                help="Choose what you're studying"
-            )
-            # Get ID from name
-            subject_id = next(s["id"] for s in subjects if s["name"] == selected_name)
+        if subject_map:
+            subject_names = list(subject_map.values())
+            selected_name = st.selectbox("Subject", options=subject_names, index=0)
+            subject_id = next((k for k, v in subject_map.items() if v == selected_name), 1)
         else:
             subject_id = st.number_input("Subject ID (fallback)", min_value=1, value=1)
 
     with col2:
-        duration = st.number_input(
-            "Duration (minutes)",
-            min_value=5,
-            step=5,
-            value=30
-        )
+        duration = st.number_input("Duration (minutes)", min_value=5, step=5, value=30)
 
-    notes = st.text_area(
-        "Notes",
-        height=100,
-        placeholder="What did you study / how did it go?"
-    )
+    notes = st.text_area("Notes", height=100, placeholder="What did you study / how did it go?")
 
-    submitted = st.form_submit_button("Save session", use_container_width=True)
-
-    if submitted:
+    if st.form_submit_button("Save", type="primary", use_container_width=True):
         if duration < 1:
             st.error("Duration must be at least 1 minute.")
         else:
@@ -101,52 +82,50 @@ with st.form("new_session_form", clear_on_submit=True):
                     },
                     headers={"X-User-Id": str(user_id)}
                 )
-
                 if r.status_code in (200, 201):
                     st.success("Session saved!")
                     st.rerun()
                 else:
                     st.error(f"Server error ({r.status_code}): {r.text}")
-            except requests.exceptions.RequestException as e:
+            except Exception as e:
                 st.error(f"Could not reach the API: {e}")
 
 # ────────────────────────────────────────────────
-# Fetch study sessions
+# Fetch sessions
 # ────────────────────────────────────────────────
 sessions = []
-
 try:
-    r = requests.get(
-        f"{API_BASE}/study",
-        headers={"X-User-Id": str(user_id)}
-    )
-
+    r = requests.get(f"{API_BASE}/study", headers={"X-User-Id": str(user_id)})
     if r.status_code == 200:
-        sessions = r.json()
+        sessions = r.json() if isinstance(r.json(), list) else r.json().get("sessions", [])
     else:
         st.error(f"Could not load sessions ({r.status_code})")
-
 except Exception as e:
     st.error(f"Connection error: {e}")
 
 # ────────────────────────────────────────────────
-# Display data
+# Display sessions in table + edit/delete in expanders
 # ────────────────────────────────────────────────
 if sessions:
     df = pd.DataFrame(sessions)
     df["session_date"] = pd.to_datetime(df["session_date"])
     df = df.sort_values("session_date", ascending=False)
-
-    # Add subject name column
     df["subject_name"] = df["subject_id"].map(subject_map).fillna(df["subject_id"].astype(str))
 
     df_display = df.copy()
-    df_display["duration"] = df_display["duration"].astype(str) + " min"
+    df_display["duration"] = df_display["duration"].astype(int).astype(str) + " min"
     df_display["notes"] = df_display["notes"].fillna("-")
 
+    # Show clean table (no actions here)
     st.dataframe(
         df_display[["session_date", "subject_name", "duration", "notes"]],
         hide_index=True,
+        column_config={
+            "session_date": st.column_config.DateColumn("Date", format="DD.MM.YYYY HH:mm"),
+            "subject_name": st.column_config.TextColumn("Subject"),
+            "duration": st.column_config.TextColumn("Duration"),
+            "notes": st.column_config.TextColumn("Notes")
+        },
         use_container_width=True
     )
 
@@ -160,28 +139,103 @@ if sessions:
     c2.metric("Sessions", session_count)
     c3.metric("Last session", last_session)
 
-    # Charts
+    # Edit & Delete in expanders (user-friendly)
+    st.subheader("Manage Sessions")
+
+    for _, row in df.iterrows():
+        session_id = row["id"]
+        label = f"{row['session_date'].strftime('%d.%m.%Y %H:%M')} • {row['duration']} min • {row['subject_name']}"
+        with st.expander(label):
+            st.write("Edit this session:")
+
+            col_left, col_right = st.columns([3, 1])
+
+            with col_left:
+                new_duration = st.number_input(
+                    "New Duration (minutes)",
+                    min_value=1,
+                    value=int(row["duration"]),
+                    key=f"dur_{session_id}"
+                )
+                new_notes = st.text_area(
+                    "New Notes",
+                    value=row["notes"] or "",
+                    height=80,
+                    key=f"notes_{session_id}"
+                )
+
+            with col_right:
+                if st.button("Update Session", key=f"update_{session_id}", use_container_width=True):
+                    try:
+                        r = requests.put(
+                            f"{API_BASE}/study/{session_id}",
+                            json={
+                                "user_id": user_id,
+                                "subject_id": row["subject_id"],
+                                "duration": new_duration,
+                                "notes": new_notes.strip() or None
+                            },
+                            headers={"X-User-Id": str(user_id)}
+                        )
+                        if r.status_code in (200, 204):
+                            st.success("Session updated!")
+                            st.rerun()
+                        else:
+                            st.error(f"Update failed: {r.text}")
+                    except Exception as e:
+                        st.error(f"Error: {e}")
+
+                if st.button("Delete Session", type="primary", key=f"delete_{session_id}", use_container_width=True):
+                    confirm_key = f"confirm_delete_{session_id}"
+                    if st.session_state.get(confirm_key, False):
+                        try:
+                            r = requests.delete(
+                                f"{API_BASE}/study/{session_id}",
+                                headers={"X-User-Id": str(user_id)}
+                            )
+                            if r.status_code in (200, 204):
+                                st.success("Session deleted!")
+                                st.rerun()
+                            else:
+                                st.error(f"Delete failed: {r.text}")
+                        except Exception as e:
+                            st.error(f"Error deleting: {e}")
+                    else:
+                        st.session_state[confirm_key] = True
+                        st.warning("Click Delete again to confirm")
+                        st.rerun()
+
+else:
+    st.info("No study sessions yet. Add your first one above.")
+
+# ────────────────────────────────────────────────
+# Charts
+# ────────────────────────────────────────────────
+if sessions:
     st.subheader("Progress Charts")
 
-    time_by_subject = df.groupby("subject_name")["duration"].sum()  # use name now
+    df = pd.DataFrame(sessions)
+    df["session_date"] = pd.to_datetime(df["session_date"])
+    df["subject_name"] = df["subject_id"].map(subject_map).fillna("Unknown")
 
-    fig1, ax1 = plt.subplots()
-    ax1.bar(time_by_subject.index, time_by_subject.values)
+    # Bar chart
+    time_by_subject = df.groupby("subject_name")["duration"].sum()
+
+    fig1, ax1 = plt.subplots(figsize=(8, 5))
+    ax1.bar(time_by_subject.index, time_by_subject.values, color="#4CAF50")
     ax1.set_title("Total Study Time per Subject")
     ax1.set_xlabel("Subject")
     ax1.set_ylabel("Minutes")
     plt.xticks(rotation=45, ha="right")
     st.pyplot(fig1)
 
+    # Line chart
     daily = df.groupby(df["session_date"].dt.date)["duration"].sum()
 
-    fig2, ax2 = plt.subplots()
-    ax2.plot(daily.index, daily.values, marker="o")
+    fig2, ax2 = plt.subplots(figsize=(10, 5))
+    ax2.plot(daily.index, daily.values, marker="o", color="#2196F3")
     ax2.set_title("Daily Study Time")
     ax2.set_xlabel("Date")
     ax2.set_ylabel("Minutes")
     plt.xticks(rotation=45)
     st.pyplot(fig2)
-
-else:
-    st.info("No study sessions yet. Add your first one above.")
