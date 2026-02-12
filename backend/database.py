@@ -13,8 +13,8 @@ def get_db():
 
 def init_db():
     """
-    Creates all required tables if they don't exist.
-    Should be called once on startup.
+    Creates all required tables if they don't exist, and adds missing columns.
+    Safe to call multiple times.
     """
     conn = get_db()
     cursor = conn.cursor()
@@ -65,7 +65,7 @@ def init_db():
             )
         """)
 
-        # Goals table
+        # Goals table - base structure
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS goals (
                 id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -78,14 +78,33 @@ def init_db():
             )
         """)
 
+        # ────────────────────────────────────────────────
+        # Add missing columns to goals table (safe ALTER)
+        # ────────────────────────────────────────────────
+        cursor.execute("PRAGMA table_info(goals)")
+        existing_columns = [col[1] for col in cursor.fetchall()]
+
+        # Add 'type' if missing
+        if "type" not in existing_columns:
+            cursor.execute("ALTER TABLE goals ADD COLUMN type TEXT DEFAULT 'milestone'")
+            print("Added column 'type' to goals table")
+
+        # Add 'streak' if missing
+        if "streak" not in existing_columns:
+            cursor.execute("ALTER TABLE goals ADD COLUMN streak INTEGER DEFAULT 0")
+            print("Added column 'streak' to goals table")
+
+        # Add 'last_done' if missing
+        if "last_done" not in existing_columns:
+            cursor.execute("ALTER TABLE goals ADD COLUMN last_done TEXT")
+            print("Added column 'last_done' to goals table")
+
         conn.commit()
-        print("Database tables initialized successfully")
+        print("Database tables and columns initialized successfully")
 
     except sqlite3.Error as e:
-        print(f"Error creating tables: {e}")
+        print(f"Error during init/migration: {e}")
         raise
 
     finally:
         conn.close()
-
-

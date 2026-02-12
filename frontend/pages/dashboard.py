@@ -184,26 +184,20 @@ if sessions:
                             st.error(f"Update failed: {r.text}")
                     except Exception as e:
                         st.error(f"Error: {e}")
-
-                if st.button("Delete Session", type="primary", key=f"delete_{session_id}", use_container_width=True):
-                    confirm_key = f"confirm_delete_{session_id}"
-                    if st.session_state.get(confirm_key, False):
-                        try:
-                            r = requests.delete(
-                                f"{API_BASE}/study/{session_id}",
-                                headers={"X-User-Id": str(user_id)}
-                            )
-                            if r.status_code in (200, 204):
-                                st.success("Session deleted!")
-                                st.rerun()
-                            else:
-                                st.error(f"Delete failed: {r.text}")
-                        except Exception as e:
-                            st.error(f"Error deleting: {e}")
-                    else:
-                        st.session_state[confirm_key] = True
-                        st.warning("Click Delete again to confirm")
-                        st.rerun()
+                confirm = st.checkbox("Confirm delete", key=f"confirm_{session_id}")
+                if st.button("Delete Session",type="primary", disabled=not confirm, key=f"delete_{session_id}"):
+                    try:
+                        r = requests.delete(
+                            f"{API_BASE}/study/{session_id}",
+                            headers={"X-User-Id": str(user_id)}
+                        )
+                        if r.status_code in (200, 204):
+                            st.success("Session deleted!")
+                            st.rerun()
+                        else:
+                            st.error(f"Delete failed: {r.text}")
+                    except Exception as e:
+                        st.error(f"Error deleting: {e}")
 
 else:
     st.info("No study sessions yet. Add your first one above.")

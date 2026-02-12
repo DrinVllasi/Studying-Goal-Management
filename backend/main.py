@@ -8,12 +8,13 @@ from schemas import (
     StudySessionOut,
     Login,
     Subject,
-    SubjectCreate,      
-    HabitCreate, HabitOut,  
-    GoalCreate, GoalOut     
+    SubjectCreate,
+    GoalCreate,
+    GoalOut
 )
 from typing import List
 import sqlite3
+from datetime import datetime, date
 
 app = FastAPI(title="Study Goal API")
 
@@ -22,7 +23,7 @@ async def startup_event():
     init_db()
 
 # ────────────────────────────────────────────────
-# Subjects CRUD
+# Subjects CRUD (unchanged)
 # ────────────────────────────────────────────────
 
 @app.get("/subjects/", response_model=List[Subject])
@@ -90,7 +91,7 @@ def delete_subject(subject_id: int):
         db.close()
 
 # ────────────────────────────────────────────────
-# Your existing endpoints (kept unchanged)
+# Your existing endpoints (unchanged)
 # ────────────────────────────────────────────────
 
 @app.post("/users/", response_model=UserOut, status_code=201)
@@ -199,7 +200,8 @@ def get_my_study_sessions(x_user_id: int = Header(..., alias="X-User-Id")):
         )
 
     return sessions
-# Update a session (PUT /study/{session_id})
+
+
 @app.put("/study/{session_id}", status_code=200)
 def update_study_session(
     session_id: int,
@@ -209,7 +211,7 @@ def update_study_session(
     db = get_db()
     cursor = db.cursor()
 
-    # Check if the session exists and belongs to the user
+    # Check ownership
     cursor.execute(
         "SELECT user_id FROM study_sessions WHERE id = ?",
         (session_id,)
@@ -223,7 +225,7 @@ def update_study_session(
         db.close()
         raise HTTPException(status_code=403, detail="You can only edit your own sessions")
 
-    # Build the update query dynamically (only update fields that are provided)
+    # Build update query
     fields = []
     values = []
     if updates.subject_id is not None:
@@ -253,7 +255,6 @@ def update_study_session(
         db.close()
 
 
-# Delete a session (DELETE /study/{session_id})
 @app.delete("/study/{session_id}", status_code=204)
 def delete_study_session(
     session_id: int,
@@ -262,7 +263,6 @@ def delete_study_session(
     db = get_db()
     cursor = db.cursor()
 
-    # Check ownership
     cursor.execute(
         "SELECT user_id FROM study_sessions WHERE id = ?",
         (session_id,)
@@ -284,6 +284,7 @@ def delete_study_session(
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
     finally:
         db.close()
+
 
 @app.post("/login")
 def login(credentials: Login):
@@ -310,3 +311,208 @@ def get_user_by_username(username: str):
     if row:
         return {"id": row[0], "username": row[1], "password": row[2]}
     return None
+
+
+# ────────────────────────────────────────────────
+# Goals CRUD (updated with daily support)
+# ────────────────────────────────────────────────
+
+@app.post("/goals/", status_code=201)
+def create_goal(
+    goal: GoalCreate,
+    x_user_id: int = Header(..., alias="X-User-Id")
+):
+    if goal.user_id != x_user_id:
+        raise HTTPException(status_code=403, detail="You can only create goals for yourself")
+
+    db = get_db()
+    cursor = db.cursor()
+    try:
+        goal_type = getattr(goal, "type", "milestone")  # default milestone
+        if goal_type not in ["milestone", "daily"]:
+            raise HTTPException(status_code=400, detail="Invalid goal type (milestone or daily)")
+
+        cursor.execute(
+            """
+            INSERT INTO goals (user_id, title, category, progress, target_date, type, streak, last_done)
+            VALUES (?, ?, ?, ?, ?, ?, 0, NULL)
+            """,
+            (
+                goal.user_id,
+                goal.title,
+                goal.category,
+                goal.progress if goal_type == "milestone" else 0,
+                goal.target_date,
+                goal_type
+            )
+        )
+        db.commit()
+        goal_id = cursor.lastrowid
+        return {"id": goal_id, "message": "Goal created"}
+    except sqlite3.Error as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+    finally:
+        db.close()
+
+
+@app.get("/goals/", response_model=List[GoalOut])
+def get_my_goals(x_user_id: int = Header(..., alias="X-User-Id")):
+    db = get_db()
+    cursor = db.cursor()
+    cursor.execute(
+        """
+        SELECT id, user_id, title, category, progress, target_date, type, streak, last_done
+        FROM goals
+        WHERE user_id = ?
+        ORDER BY type, target_date DESC
+        """,
+        (x_user_id,)
+    )
+    rows = cursor.fetchall()
+    db.close()
+
+    goals = []
+    for row in rows:
+        goals.append(
+            GoalOut(
+                id=row[0],
+                user_id=row[1],
+                title=row[2],
+                category=row[3],
+                progress=row[4],
+                target_date=row[5],
+                type=row[6],
+                streak=row[7],
+                last_done=row[8]
+            )
+        )
+    return goals
+
+
+@app.put("/goals/{goal_id}", status_code=200)
+def update_goal(
+    goal_id: int,
+    updates: GoalCreate,
+    x_user_id: int = Header(..., alias="X-User-Id")
+):
+    db = get_db()
+    cursor = db.cursor()
+
+    cursor.execute("SELECT user_id FROM goals WHERE id = ?", (goal_id,))
+    row = cursor.fetchone()
+    if not row:
+        db.close()
+        raise HTTPException(status_code=404, detail="Goal not found")
+    if row["user_id"] != x_user_id:
+        db.close()
+        raise HTTPException(status_code=403, detail="You can only edit your own goals")
+
+    fields = []
+    values = []
+    if updates.title is not None:
+        fields.append("title = ?")
+        values.append(updates.title)
+    if updates.category is not None:
+        fields.append("category = ?")
+        values.append(updates.category)
+    if updates.progress is not None:
+        fields.append("progress = ?")
+        values.append(updates.progress)
+    if updates.target_date is not None:
+        fields.append("target_date = ?")
+        values.append(updates.target_date)
+
+    if not fields:
+        db.close()
+        raise HTTPException(status_code=400, detail="No fields to update")
+
+    values.append(goal_id)
+    query = f"UPDATE goals SET {', '.join(fields)} WHERE id = ?"
+
+    try:
+        cursor.execute(query, values)
+        db.commit()
+        return {"message": "Goal updated"}
+    except sqlite3.Error as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+    finally:
+        db.close()
+
+
+@app.delete("/goals/{goal_id}", status_code=204)
+def delete_goal(goal_id: int, x_user_id: int = Header(..., alias="X-User-Id")):
+    db = get_db()
+    cursor = db.cursor()
+
+    cursor.execute("SELECT user_id FROM goals WHERE id = ?", (goal_id,))
+    row = cursor.fetchone()
+    if not row:
+        db.close()
+        raise HTTPException(status_code=404, detail="Goal not found")
+    if row["user_id"] != x_user_id:
+        db.close()
+        raise HTTPException(status_code=403, detail="You can only delete your own goals")
+
+    try:
+        cursor.execute("DELETE FROM goals WHERE id = ?", (goal_id,))
+        db.commit()
+        return Response(status_code=204)
+    except sqlite3.Error as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+    finally:
+        db.close()
+
+
+# ────────────────────────────────────────────────
+# Mark daily goal as done (streak logic)
+# ────────────────────────────────────────────────
+@app.post("/goals/{goal_id}/mark-daily", status_code=200)
+def mark_daily_goal_done(
+    goal_id: int,
+    x_user_id: int = Header(..., alias="X-User-Id")
+):
+    db = get_db()
+    cursor = db.cursor()
+
+    cursor.execute(
+        "SELECT user_id, type, last_done, streak FROM goals WHERE id = ?",
+        (goal_id,)
+    )
+    row = cursor.fetchone()
+    if not row:
+        db.close()
+        raise HTTPException(status_code=404, detail="Goal not found")
+    if row["user_id"] != x_user_id:
+        db.close()
+        raise HTTPException(status_code=403, detail="You can only mark your own goals")
+    if row["type"] != "daily":
+        db.close()
+        raise HTTPException(status_code=400, detail="Only daily goals can be marked done")
+
+    today = datetime.now().date().isoformat()
+    last_done = row["last_done"]
+    current_streak = row["streak"]
+
+    if last_done == today:
+        db.close()
+        raise HTTPException(status_code=400, detail="Already marked done today")
+
+    new_streak = 1
+    if last_done:
+        last_date = datetime.fromisoformat(last_done).date()
+        days_diff = (datetime.now().date() - last_date).days
+        if days_diff == 1:
+            new_streak = current_streak + 1
+        # if days_diff > 1 → missed day(s) → streak resets to 1
+
+    try:
+        cursor.execute(
+            "UPDATE goals SET streak = ?, last_done = ? WHERE id = ?",
+            (new_streak, today, goal_id)
+        )
+        db.commit()
+        return {"message": "Marked done", "streak": new_streak}
+    except sqlite3.Error as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+    finally:
+        db.close()

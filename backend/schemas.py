@@ -61,3 +61,22 @@ class GoalOut(BaseModel):
     category: Optional[str] = None
     progress: int
     target_date: Optional[str] = None
+
+class GoalCreate(BaseModel):
+    user_id: int
+    title: str
+    category: Optional[str] = None
+    progress: int = 0
+    target_date: Optional[str] = None
+    type: str = "milestone"  # "milestone" or "daily"
+
+class GoalOut(BaseModel):
+    id: int
+    user_id: int
+    title: str
+    category: Optional[str] = None
+    progress: int
+    target_date: Optional[str] = None
+    type: str
+    streak: int = 0
+    last_done: Optional[str] = None
