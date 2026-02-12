@@ -138,9 +138,9 @@ if sessions:
     c2.metric("Sessions", session_count)
     c3.metric("Last session", last_session)
 
-    # ────────────────────────────────────────────────
+    # ────────────────────────────────────────────────-
     # Modern black-and-white Charts with darker background
-    # ────────────────────────────────────────────────
+    # ────────────────────────────────────────────────-
     st.subheader("Progress Charts")
 
     # Bar chart - dark gray bars, off-white background
