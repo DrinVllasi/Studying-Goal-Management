@@ -104,7 +104,7 @@ except Exception as e:
     st.error(f"Connection error: {e}")
 
 # ────────────────────────────────────────────────
-# Display sessions in table + edit/delete in expanders
+# Display sessions
 # ────────────────────────────────────────────────
 if sessions:
     df = pd.DataFrame(sessions)
@@ -116,7 +116,6 @@ if sessions:
     df_display["duration"] = df_display["duration"].astype(int).astype(str) + " min"
     df_display["notes"] = df_display["notes"].fillna("-")
 
-    # Show clean table (no actions here)
     st.dataframe(
         df_display[["session_date", "subject_name", "duration", "notes"]],
         hide_index=True,
@@ -139,15 +138,75 @@ if sessions:
     c2.metric("Sessions", session_count)
     c3.metric("Last session", last_session)
 
-    # Edit & Delete in expanders (user-friendly)
+    # ────────────────────────────────────────────────
+    # Modern black-and-white Charts with darker background
+    # ────────────────────────────────────────────────
+    st.subheader("Progress Charts")
+
+    # Bar chart - dark gray bars, off-white background
+    time_by_subject = df.groupby("subject_name")["duration"].sum().reset_index()
+
+    fig1, ax1 = plt.subplots(figsize=(12, 6))
+    ax1.bar(time_by_subject["subject_name"], time_by_subject["duration"], color="#202020", width=0.5)
+    ax1.set_title("Total Study Time per Subject", fontsize=25, pad=25)
+    ax1.set_xlabel("Subject", fontsize=15, labelpad=12)
+    ax1.set_ylabel("Minutes", fontsize=15, labelpad=12)
+    ax1.tick_params(axis='both', which='major', labelsize=11)
+
+    # Darker background
+    ax1.set_facecolor("#B3B1B1")
+    fig1.set_facecolor("#B3B1B1")
+
+    # Clean spines
+    ax1.spines['top'].set_visible(False)
+    ax1.spines['right'].set_visible(False)
+    ax1.spines['left'].set_color("#000000")
+    ax1.spines['bottom'].set_color("#000000")
+
+    plt.xticks(rotation=45, ha='right')
+    plt.tight_layout()
+    st.pyplot(fig1)
+
+    # Line chart - dark line, light fill, off-white background
+    daily = df.groupby(df["session_date"].dt.date)["duration"].sum().reset_index()
+    daily["session_date"] = pd.to_datetime(daily["session_date"])
+
+    fig2, ax2 = plt.subplots(figsize=(14, 6))
+    ax2.plot(daily["session_date"], daily["duration"], color="#020A1B", linewidth=3)
+    ax2.fill_between(daily["session_date"], daily["duration"], color="#000000", alpha=0.5)
+
+    ax2.set_title("Daily Study Time", fontsize=25, pad=25)
+    ax2.set_xlabel("Date", fontsize=1, labelpad=12)
+    ax2.set_ylabel("Minutes", fontsize=15, labelpad=12)
+    ax2.tick_params(axis='both', which='major', labelsize=11)
+
+    # Darker background
+    ax2.set_facecolor('#f8f9fa')
+    fig2.set_facecolor('#f8f9fa')
+
+    # Clean spines
+    ax2.spines['top'].set_visible(False)
+    ax2.spines['right'].set_visible(False)
+    ax2.spines['left'].set_color("#000000")
+    ax2.spines['bottom'].set_color("#000000")
+
+    plt.xticks(rotation=45, ha='right')
+    plt.tight_layout()
+    st.pyplot(fig2)
+
+else:
+    st.info("No study sessions yet. Add your first one above.")
+
+# ────────────────────────────────────────────────
+# Manage Sessions (edit/delete - unchanged)
+# ────────────────────────────────────────────────
+if sessions:
     st.subheader("Manage Sessions")
 
     for _, row in df.iterrows():
         session_id = row["id"]
         label = f"{row['session_date'].strftime('%d.%m.%Y %H:%M')} • {row['duration']} min • {row['subject_name']}"
         with st.expander(label):
-            st.write("Edit this session:")
-
             col_left, col_right = st.columns([3, 1])
 
             with col_left:
@@ -165,7 +224,22 @@ if sessions:
                 )
 
             with col_right:
-                if st.button("Update Session", key=f"update_{session_id}", use_container_width=True):
+                confirm = st.checkbox("Confirm delete", key=f"confirm_{session_id}")
+                if st.button("Delete", type="primary", disabled=not confirm, key=f"delete_{session_id}"):
+                    try:
+                        r = requests.delete(
+                            f"{API_BASE}/study/{session_id}",
+                            headers={"X-User-Id": str(user_id)}
+                        )
+                        if r.status_code in (200, 204):
+                            st.success("Session deleted!")
+                            st.rerun()
+                        else:
+                            st.error(r.text)
+                    except Exception as e:
+                        st.error(f"Error deleting: {e}")
+
+                if st.button("Update", key=f"update_{session_id}", use_container_width=True):
                     try:
                         r = requests.put(
                             f"{API_BASE}/study/{session_id}",
@@ -181,55 +255,6 @@ if sessions:
                             st.success("Session updated!")
                             st.rerun()
                         else:
-                            st.error(f"Update failed: {r.text}")
+                            st.error(r.text)
                     except Exception as e:
-                        st.error(f"Error: {e}")
-                confirm = st.checkbox("Confirm delete", key=f"confirm_{session_id}")
-                if st.button("Delete Session",type="primary", disabled=not confirm, key=f"delete_{session_id}"):
-                    try:
-                        r = requests.delete(
-                            f"{API_BASE}/study/{session_id}",
-                            headers={"X-User-Id": str(user_id)}
-                        )
-                        if r.status_code in (200, 204):
-                            st.success("Session deleted!")
-                            st.rerun()
-                        else:
-                            st.error(f"Delete failed: {r.text}")
-                    except Exception as e:
-                        st.error(f"Error deleting: {e}")
-
-else:
-    st.info("No study sessions yet. Add your first one above.")
-
-# ────────────────────────────────────────────────
-# Charts
-# ────────────────────────────────────────────────
-if sessions:
-    st.subheader("Progress Charts")
-
-    df = pd.DataFrame(sessions)
-    df["session_date"] = pd.to_datetime(df["session_date"])
-    df["subject_name"] = df["subject_id"].map(subject_map).fillna("Unknown")
-
-    # Bar chart
-    time_by_subject = df.groupby("subject_name")["duration"].sum()
-
-    fig1, ax1 = plt.subplots(figsize=(8, 5))
-    ax1.bar(time_by_subject.index, time_by_subject.values, color="#4CAF50")
-    ax1.set_title("Total Study Time per Subject")
-    ax1.set_xlabel("Subject")
-    ax1.set_ylabel("Minutes")
-    plt.xticks(rotation=45, ha="right")
-    st.pyplot(fig1)
-
-    # Line chart
-    daily = df.groupby(df["session_date"].dt.date)["duration"].sum()
-
-    fig2, ax2 = plt.subplots(figsize=(10, 5))
-    ax2.plot(daily.index, daily.values, marker="o", color="#2196F3")
-    ax2.set_title("Daily Study Time")
-    ax2.set_xlabel("Date")
-    ax2.set_ylabel("Minutes")
-    plt.xticks(rotation=45)
-    st.pyplot(fig2)
+                        st.error(f"Error updating: {e}")
