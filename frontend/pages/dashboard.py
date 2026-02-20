@@ -154,8 +154,8 @@ if sessions:
     ax1.tick_params(axis='both', which='major', labelsize=11)
 
     # Darker background
-    ax1.set_facecolor("#B3B1B1")
-    fig1.set_facecolor("#B3B1B1")
+    ax1.set_facecolor("#f8f9fa")
+    fig1.set_facecolor("#f8f9fa")
 
     # Clean spines
     ax1.spines['top'].set_visible(False)
