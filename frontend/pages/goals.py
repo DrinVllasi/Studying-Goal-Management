@@ -217,7 +217,7 @@ if goals:
 
             done_today = last_done == datetime.now().date().isoformat()
 
-            st.markdown(f"**{title}** ({category}) — Streak: **{streak}** 🔥")
+            st.markdown(f"**{title}** ({category})")
 
             if done_today:
                 st.success("Done today ✓")
