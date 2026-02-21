@@ -21,5 +21,18 @@ A simple full-stack app to track study sessions, set goals (milestone and daily)
 
 ### 1. Clone the project
 ```bash
-git clone <your-repo-url>
+git clone https://github.com/DrinVllasi/Studying-Goal-Management.git
 cd Studying-Goal-Management
+
+### 2. Install libraries
+pip install -r requirements.txt
+
+### 3. Start the backend
+#Open terminal1 and run:
+cd backend   # if your main.py is inside a 'backend' folder
+uvicorn main:app --reload
+
+### 4. Start the frontend
+#Open terminal2 and run:
+cd frontend # if your app.py is inside a 'frontend' folder
+streamlit run app.py
